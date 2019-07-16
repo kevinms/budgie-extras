@@ -8,7 +8,7 @@ import time
 """
 DropBy
 Author: Jacob Vlijm
-Copyright © 2017-2018 Ubuntu Budgie Developers
+Copyright © 2017-2019 Ubuntu Budgie Developers
 Website=https://ubuntubudgie.org
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -60,7 +60,11 @@ def get_mounted():
     relevant = []
     mounted = psutil.disk_partitions(all=False)
     for v in mounted:
-        usage = psutil.disk_usage(v.mountpoint)
+        usage = None
+        try:
+            usage = psutil.disk_usage(v.mountpoint)
+        except PermissionError:
+            continue
         dev = v.device
         # mountpoint is relevant for possible actions
         mpoint = v.mountpoint
