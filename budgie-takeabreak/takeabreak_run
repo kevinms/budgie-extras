@@ -6,6 +6,9 @@ import time
 import os
 import getkeys
 import psutil
+import atexit
+import signal
+import sys
 
 
 """
@@ -38,6 +41,7 @@ notify_time = 15
 from_unidle = tab_settings.get_boolean("smartresume")
 message = "Break in " + str(notify_time) + " seconds"
 tabcountdown_path = os.path.dirname(os.path.abspath(__file__))
+messageProcess = None
 
 
 def getkey():
@@ -63,44 +67,66 @@ def write_nextbreak():
     next_break = time.time() + awaketime
     open("/tmp/nextbreak_" + user, "wt").write(str(next_break))
 
-
-def take_a_break():
+def get_screens():
     get = subprocess.check_output(["xrandr"]).decode("utf-8").split()
     screens = [get[i - 1] for i in range(len(get)) if get[i] == "connected"]
+    return screens
+
+def reset_system_state():
+    global messageProcess
+    if messageProcess != None:
+        messageProcess.kill()
+        messageProcess = None
+    if auto_unlock:
+        subprocess.Popen([
+            "gnome-screensaver-command", "-d"
+        ])
+    screens = get_screens()
+    args = ["xrandr"]
+    for scr in screens:
+        if mode == "rotate":
+            args += ["--output", scr, "--rotate", "normal"]
+        elif mode == "dim":
+            args += ["--output", scr, "--brightness", "1"]
+    subprocess.check_call(args)
+
+def exit_handler(signum, frame):
+    sys.exit(1)
+
+def setup_exit_handler():
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, exit_handler)
+
+    atexit.register(reset_system_state)
+
+def remove_exit_handler():
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, signal.SIG_DFL)
+
+    atexit.unregister(reset_system_state)
+
+def take_a_break():
+    global messageProcess
+    setup_exit_handler()
+    screens = get_screens()
     if mode == "message":
         command = tabcountdown_path + "/message_window"
-        subprocess.Popen([command, str(sleeptime)])
+        messageProcess = subprocess.Popen([command, str(sleeptime)])
+    elif mode == "lock":
+        subprocess.Popen([
+            "gnome-screensaver-command", "-l"
+        ])
     else:
+        args = ["xrandr"]
         for scr in screens:
             if mode == "rotate":
-                subprocess.call([
-                    "xrandr", "--output", scr, "--rotate", "inverted"
-                ])
+                args += ["--output", scr, "--rotate", "inverted"]
             elif mode == "dim":
-                subprocess.call([
-                    "xrandr", "--output", scr, "--brightness", "0.1"
-                ])
-            elif mode == "lock":
-                subprocess.Popen([
-                    "gnome-screensaver-command", "-l"
-                ])
+                args += ["--output", scr, "--brightness", "0.1"]
+        subprocess.call(args)
     time.sleep(sleeptime)
-    for scr in screens:
-        if auto_unlock:
-            subprocess.Popen([
-                "gnome-screensaver-command", "-d"
-            ])
-        time.sleep(2)
-        if mode == "rotate":
-            subprocess.call([
-                "xrandr", "--output", scr, "--rotate", "normal"
-            ])
-            time.sleep(0.2)
-        elif mode == "dim":
-            subprocess.call([
-                "xrandr", "--output", scr, "--brightness", "1"
-            ])
-            time.sleep(0.2)
+    reset_system_state()
+    remove_exit_handler()
     if from_unidle:
         idle_sleep()
 
